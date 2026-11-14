@@ -98,6 +98,22 @@ class Prefs(ctx: Context) {
         get() = sp.getString("titleDestination", TitleLinks.NUVIO) ?: TitleLinks.NUVIO
         set(v) { sp.edit().putString("titleDestination", v).apply() }
 
+    /** Home Assistant lamp button: server address, long-lived access token and the entity it toggles. */
+    var haUrl: String
+        get() = sp.getString("haUrl", "") ?: ""
+        set(v) { sp.edit().putString("haUrl", HaLogic.normalizeUrl(v)).apply() }
+    var haToken: String
+        get() = sp.getString("haToken", "") ?: ""
+        set(v) { sp.edit().putString("haToken", v.trim()).apply() }
+    var haEntity: String
+        get() = sp.getString("haEntity", "") ?: ""
+        set(v) { sp.edit().putString("haEntity", v.trim()).apply() }
+    var haEntityName: String
+        get() = sp.getString("haEntityName", "") ?: ""
+        set(v) { sp.edit().putString("haEntityName", v.trim()).apply() }
+    val haConnected: Boolean get() = haUrl.isNotEmpty() && haToken.isNotEmpty()
+    val haReady: Boolean get() = haConnected && HaLogic.isToggleable(haEntity)
+
     companion object {
         const val DEFAULT_SCENE = "scene:desert"
     }

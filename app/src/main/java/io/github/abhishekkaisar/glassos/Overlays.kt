@@ -41,6 +41,8 @@ class SettingsView(private val act: HomeScreen) : FrameLayout(act.ctx) {
     private val sizeRow = RowView(context, "Icon size")
     private val destinationRow = RowView(context, "Open movies in")
     private val keyRow = RowView(context, "TMDB API key")
+    private val haRow = RowView(context, "Home Assistant")
+    private val lampRow = RowView(context, "Lamp button")
     private val appsRow = RowView(context, "Top row apps")
     private val hiddenRow = RowView(context, "Hidden apps")
     private val permsRow = RowView(context, "Permissions")
@@ -110,6 +112,8 @@ class SettingsView(private val act: HomeScreen) : FrameLayout(act.ctx) {
         list.addView(refreshRow, rowLp())
         for (row in listOf(columnsRow, insetRow, gapRow, sizeRow, destinationRow)) list.addView(row, rowLp())
         list.addView(keyRow, rowLp())
+        list.addView(haRow, rowLp())
+        list.addView(lampRow, rowLp())
         list.addView(soundRow, rowLp())
         list.addView(continueAutoRow, rowLp())
         list.addView(bgRow, rowLp())
@@ -223,6 +227,12 @@ class SettingsView(private val act: HomeScreen) : FrameLayout(act.ctx) {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Enable") { _, _ -> act.setDirectHomeKey(true); updateValues() }.show()
         }
+        haRow.onClick = { if (!needsActivity()) haDialog() }
+        lampRow.onClick = {
+            if (needsActivity()) Unit
+            else if (!act.prefs.haConnected) haDialog()
+            else loadLamps()
+        }
         fastHomeRow.onClick = {
             close { act.ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
@@ -257,6 +267,12 @@ class SettingsView(private val act: HomeScreen) : FrameLayout(act.ctx) {
         nameRow.valueView.text = act.prefs.name.ifEmpty { "Not set" }
         countryRow.valueView.text = act.prefs.country.ifEmpty { "Not set" }.let { c -> if (c.length == 2) java.util.Locale("", c).displayCountry else c }
         shelfRow.valueView.text = HeroRepo.sourceLabel(act.prefs.topShelf)
+        haRow.valueView.text = if (act.prefs.haConnected) act.prefs.haUrl.substringAfter("://") else "Not set"
+        lampRow.valueView.text = when {
+            !act.prefs.haConnected -> "Connect first"
+            act.prefs.haReady -> act.prefs.haEntityName.ifEmpty { act.prefs.haEntity }
+            else -> "Choose"
+        }
         keyRow.valueView.text = when {
             act.prefs.tmdbKey.isNotEmpty() -> "Your key"
             BuildConfig.TMDB_API_KEY.isNotEmpty() -> "Built in"
@@ -266,6 +282,110 @@ class SettingsView(private val act: HomeScreen) : FrameLayout(act.ctx) {
         bgRow.valueView.text = WallpaperStore.label(act.prefs.scene)
         replaceRow.valueView.text = if (act.prefs.replaceHome) "On" else "Off"
         homeAppRow.valueView.text = if (Platform.isDefaultHome(context)) "GlassOS" else "Not GlassOS"
+    }
+
+    // ---------- Home Assistant lamp ----------
+
+    private fun toast(msg: String) = android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+
+    /** Dialogs need an activity: from the overlay home, open GlassOS+ first (as Direct Home does). */
+    private fun needsActivity(): Boolean {
+        if (context is android.app.Activity) return false
+        close { context.startActivity(android.content.Intent(context, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        toast("Open Settings in GlassOS+ to set up Home Assistant")
+        return true
+    }
+
+    /** Address and long-lived access token; saved only once Home Assistant accepts them. */
+    private fun haDialog() {
+        val p = act.prefs
+        val pad = dpi(22f)
+        val box = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, dpi(6f), pad, 0) }
+        val url = android.widget.EditText(context).apply {
+            hint = "http://192.168.1.10:8123"
+            setText(p.haUrl)
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_NEXT
+        }
+        val token = android.widget.EditText(context).apply {
+            hint = if (p.haToken.isEmpty()) "Long-lived access token" else "Token saved: leave empty to keep it"
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        }
+        box.addView(url, LinearLayout.LayoutParams(-1, -2))
+        box.addView(token, LinearLayout.LayoutParams(-1, -2))
+        val b = android.app.AlertDialog.Builder(context)
+            .setTitle("Home Assistant")
+            .setMessage("Your Home Assistant address and a long-lived access token (Home Assistant > your profile > Security). " +
+                "Tip: type with the Google TV app on your phone to paste the token.")
+            .setView(box)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Connect") { _, _ ->
+                val u = HaLogic.normalizeUrl(url.text.toString())
+                val t = token.text.toString().trim().ifEmpty { p.haToken }
+                if (u.isEmpty() || t.isEmpty()) { toast("Enter the address and the token"); return@setPositiveButton }
+                haRow.valueView.text = "Checking…"
+                Thread {
+                    try {
+                        val lamps = HomeAssistant.toggleable(u, t)
+                        post {
+                            p.haUrl = u
+                            p.haToken = t
+                            updateValues()
+                            act.updateLampVisibility()
+                            toast("Connected to Home Assistant")
+                            if (!p.haReady) showLampPicker(lamps) else act.refreshLamp()
+                        }
+                    } catch (e: Throwable) {
+                        post { updateValues(); toast(HomeAssistant.describe(e)) }
+                    }
+                }.start()
+            }
+        if (p.haConnected) b.setNeutralButton("Disconnect") { _, _ ->
+            p.haToken = ""; p.haEntity = ""; p.haEntityName = ""
+            act.updateLampVisibility(); updateValues()
+        }
+        b.show()
+    }
+
+    private fun loadLamps() {
+        val p = act.prefs
+        val u = p.haUrl; val t = p.haToken
+        lampRow.valueView.text = "Loading…"
+        Thread {
+            try {
+                val lamps = HomeAssistant.toggleable(u, t)
+                post { updateValues(); showLampPicker(lamps) }
+            } catch (e: Throwable) {
+                post { updateValues(); toast(HomeAssistant.describe(e)) }
+            }
+        }.start()
+    }
+
+    /** Lamps first, then other lights, switches, helpers and fans. The first item hides the button. */
+    private fun showLampPicker(lamps: List<HomeAssistant.Entity>) {
+        if (lamps.isEmpty()) { toast("No lights or switches found in Home Assistant"); return }
+        val p = act.prefs
+        val labels = ArrayList<String>()
+        labels.add("None (hide the button)")
+        for (e in lamps) {
+            val mark = if (e.id == p.haEntity) "✓  " else ""
+            val st = when (e.on) { true -> "on"; false -> "off"; null -> "unavailable" }
+            labels.add("$mark${e.name}  ·  $st")
+        }
+        android.app.AlertDialog.Builder(context)
+            .setTitle("Lamp button")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which == 0) { p.haEntity = ""; p.haEntityName = "" }
+                else { val e = lamps[which - 1]; p.haEntity = e.id; p.haEntityName = e.name }
+                act.updateLampVisibility()
+                act.refreshLamp()
+                updateValues()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     fun refreshThumbs() {

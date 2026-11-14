@@ -68,6 +68,16 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
     private lateinit var continueRepo: ContinueWatchingRepository
     private lateinit var shelf: GlassBox
     private lateinit var gear: UserPill
+    private lateinit var lamp: LampButton
+    /** Home Assistant calls run here, apart from [worker], so a slow catalog fetch never delays the lamp. */
+    private val haWorker = Executors.newSingleThreadExecutor()
+    private val lampPoll = object : Runnable {
+        override fun run() {
+            if (!resumed || released) return
+            refreshLamp()
+            main.postDelayed(this, LAMP_POLL_MS)
+        }
+    }
     private lateinit var chevron: View
     private lateinit var hint: TextView
     lateinit var settings: SettingsView
@@ -156,6 +166,7 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
         labelAnim?.cancel()
         main.removeCallbacksAndMessages(null)
         worker.shutdownNow()
+        haWorker.shutdownNow()
     }
 
     private fun ui(r: () -> Unit) { main.post { if (!released) r() } }
@@ -221,6 +232,28 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
         header.addView(gear, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
             rightMargin = margin; topMargin = sh * 48 / 1080
         })
+        // Home Assistant lamp: a round glass button just left of the pill, shown once a lamp is chosen in Settings.
+        lamp = LampButton(ctx).apply {
+            id = View.generateViewId()
+            nextFocusRightId = gear.id
+            nextFocusDownId = hero.id
+            onClick = { toggleLamp() }
+            onLongPress = { openSettings() }
+            navigate = { code ->
+                when (code) {
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> { gear.requestFocus(); true }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> { focusDock(); true }
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> true
+                    else -> false
+                }
+            }
+        }
+        header.addView(lamp, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
+            rightMargin = margin; topMargin = sh * 48 / 1080
+        })
+        // The pill's width follows the clock; keep the lamp a fixed gap to its left.
+        gear.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> lamp.translationX = -(v.width + ctx.dp(10f)) }
+        updateLampVisibility()
         heroRefresh = HeroRefreshButton(ctx).apply {
             id = View.generateViewId()
             alpha = 0f
@@ -333,7 +366,7 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
                 val r = (new.tag as? Int) ?: 0
                 if (r == 0) lastDockIndex = dockTiles.indexOf(new).coerceAtLeast(0)
                 scrollToRow(r)
-            } else if (new === gear || new === hero || new === heroRefresh || continueRow.hasFocus()) scrollToRow(0)
+            } else if (new === gear || new === lamp || new === hero || new === heroRefresh || continueRow.hasFocus()) scrollToRow(0)
         }
         root.viewTreeObserver.addOnGlobalLayoutListener { invalidateDeep(root) }
         root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
@@ -352,7 +385,7 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
     }
 
     private fun scrollToRow(r: Int) {
-        val titleFocused = focused() === hero || focused() === gear || focused() === heroRefresh
+        val titleFocused = focused() === hero || focused() === gear || focused() === lamp || focused() === heroRefresh
         // Apps stay at the original bottom position. Down reveals Continue Watching;
         // Up returns Apps to the same position without changing the selected app.
         val expanded = r == 0 && !continueRow.hasFocus()
@@ -547,6 +580,7 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
         hero.shelfTop = (row0Top - shelfPadV).toFloat()
         hero.leftX = margin.toFloat()
         gear.layoutParams = (gear.layoutParams as FrameLayout.LayoutParams).apply { rightMargin = margin }
+        lamp.layoutParams = (lamp.layoutParams as FrameLayout.LayoutParams).apply { rightMargin = margin }
         chevron.layoutParams = (chevron.layoutParams as FrameLayout.LayoutParams).apply { topMargin = row0Top - shelfPadV - ctx.dpi(17f) }
         hint.layoutParams = (hint.layoutParams as FrameLayout.LayoutParams).apply { topMargin = row0Top - ctx.dpi(56f) }
         val instant = FocusAnim.forceInstant
@@ -597,6 +631,7 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
     /** The window went to the back (an app, the screensaver, Settings): a move in progress is put back. */
     fun onPaused() {
         resumed = false
+        main.removeCallbacks(lampPoll)
         if (::appMenu.isInitialized) leaveMove()
     }
 
@@ -607,6 +642,59 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
         if (::setup.isInitialized) setup.onReturned()
         updateTime()
         if (!worker.isShutdown) worker.execute { refreshTitles(prefs.scene, wallToken) }
+        updateLampVisibility()
+        main.removeCallbacks(lampPoll)
+        main.post(lampPoll)
+    }
+
+    // ---------- Home Assistant lamp ----------
+
+    /** Shows the lamp button once Settings has an address, a token and a lamp; Left from the pill reaches it. */
+    fun updateLampVisibility() {
+        if (!::lamp.isInitialized) return
+        val ready = prefs.haReady
+        lamp.visibility = if (ready) View.VISIBLE else View.GONE
+        gear.nextFocusLeftId = if (ready) lamp.id else View.NO_ID
+        lamp.contentDescription = prefs.haEntityName.ifEmpty { prefs.haEntity }.ifEmpty { "Lamp" }
+        if (!ready) { lamp.state = null; if (lamp.isFocused) gear.requestFocus() }
+    }
+
+    /** Reads the lamp's state from Home Assistant (a failure shows it as unknown, quietly). */
+    fun refreshLamp() {
+        if (!::lamp.isInitialized || released || !prefs.haReady || lamp.busy || haWorker.isShutdown) return
+        val url = prefs.haUrl; val token = prefs.haToken; val entity = prefs.haEntity
+        haWorker.execute {
+            val s = try { HomeAssistant.state(url, token, entity) } catch (t: Throwable) { null }
+            ui { if (!lamp.busy && entity == prefs.haEntity) lamp.state = s }
+        }
+    }
+
+    private fun toggleLamp() {
+        if (lamp.busy || !prefs.haReady || haWorker.isShutdown) return
+        val url = prefs.haUrl; val token = prefs.haToken; val entity = prefs.haEntity
+        val before = lamp.state
+        lamp.busy = true
+        // Answer at once on screen; Home Assistant's real state replaces the guess when it comes back.
+        if (before != null) lamp.state = !before
+        haWorker.execute {
+            var error: Throwable? = null
+            var now: Boolean? = null
+            try {
+                HomeAssistant.toggle(url, token, entity)
+                // Zigbee and Wi-Fi plugs report a moment after the service call returns.
+                Thread.sleep(400)
+                now = HomeAssistant.state(url, token, entity)
+            } catch (t: InterruptedException) { return@execute
+            } catch (t: Throwable) { error = t }
+            val failed = error
+            val result = now
+            ui {
+                lamp.busy = false
+                lamp.state = if (failed != null) before else result
+                if (failed != null) Toast.makeText(ctx, HomeAssistant.describe(failed), Toast.LENGTH_LONG).show()
+                else if (prefs.sound) sound?.tick()
+            }
+        }
     }
 
     fun updateTime() {
@@ -1300,6 +1388,8 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
             }
         } else if (down && focused() === gear && code == KeyEvent.KEYCODE_DPAD_DOWN) {
             focusDock(); return true
+        } else if (down && focused() === gear && code == KeyEvent.KEYCODE_DPAD_LEFT && lamp.visibility == View.VISIBLE) {
+            lamp.requestFocus(); return true
         }
         return false
     }
@@ -1363,5 +1453,6 @@ class HomeScreen(val ctx: Context, private val host: HomeHost, seed: HomeScreen?
 
     companion object {
         const val COLS = 6
+        private const val LAMP_POLL_MS = 15_000L
     }
 }

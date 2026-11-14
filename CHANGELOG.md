@@ -1,5 +1,12 @@
 # Changes from upstream v1.0.2-beta
 
+## Unreleased: Home Assistant lamp button
+
+- Added an optional round glass lamp button to the left of the user pill. OK toggles one Home Assistant entity (light, switch, input_boolean or fan) through the local REST API; a long press opens Settings. The button is amber when on, clear when off and dimmed when the state is unknown; it refreshes on resume and every 15 seconds while the home is in front.
+- Settings > Home Assistant takes the server address and a long-lived access token (saved only after Home Assistant accepts them); Settings > Lamp button picks the entity, with lamps listed first, or hides the button.
+- Allowed cleartext HTTP so a local `http://<ip>:8123` server works. No new dependency; the token stays in the app's private preferences (backups are already disabled).
+- JVM checks for address normalization, toggleable domains, on/off/unavailable states and picker order.
+
 ## 1.1.2
 
 - Recognize official Nuvio Full (`com.nuvio.tv`), Play Store/legacy (`com.nuvio.app`) and official debug package IDs; route exact titles to an installed compatible distribution.

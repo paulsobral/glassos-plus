@@ -31,7 +31,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="GlassOS+"
         android:largeHeap="false"
-        android:theme="@style/GlassTheme">
+        android:theme="@style/GlassTheme"
+        android:usesCleartextTraffic="true">
 
         <activity
             android:name=".MainActivity"

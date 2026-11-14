@@ -3,7 +3,8 @@ name: Build
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, home-assistant-lamp]
+  workflow_dispatch:
 
 permissions:
   contents: read

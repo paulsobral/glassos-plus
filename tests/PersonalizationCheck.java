@@ -113,6 +113,20 @@ public final class PersonalizationCheck {
         require(TitleLinks.build(TitleLinks.NUVIO, "movie", "tt1375666/../../other") == null, "Malformed id accepted");
         require(TitleLinks.build(TitleLinks.NUVIO, "other", "tt1375666") == null, "Unsupported type accepted");
         require(TitleLinks.build("com.netflix.ninja", "movie", "tt1375666") == null, "Wrong app fallback");
+        // Home Assistant lamp button rules.
+        require("http://192.168.1.5:8123".equals(io.github.abhishekkaisar.glassos.personal.HaLogic.normalizeUrl(" 192.168.1.5:8123/ ")), "HA address without scheme");
+        require("https://ha.example.org".equals(io.github.abhishekkaisar.glassos.personal.HaLogic.normalizeUrl("https://ha.example.org/api/")), "HA address with /api");
+        require("".equals(io.github.abhishekkaisar.glassos.personal.HaLogic.normalizeUrl("  ")), "Blank HA address invented");
+        require(io.github.abhishekkaisar.glassos.personal.HaLogic.isToggleable("switch.sonoff_1000507f20"), "Switch not toggleable");
+        require(io.github.abhishekkaisar.glassos.personal.HaLogic.isToggleable("light.sala"), "Light not toggleable");
+        require(!io.github.abhishekkaisar.glassos.personal.HaLogic.isToggleable("sensor.smart_plug_power_2"), "Sensor treated as toggleable");
+        require(!io.github.abhishekkaisar.glassos.personal.HaLogic.isToggleable("switch."), "Empty object id accepted");
+        require(!io.github.abhishekkaisar.glassos.personal.HaLogic.isToggleable(""), "Empty entity accepted");
+        require(Boolean.TRUE.equals(io.github.abhishekkaisar.glassos.personal.HaLogic.isOn("on")), "On state");
+        require(Boolean.FALSE.equals(io.github.abhishekkaisar.glassos.personal.HaLogic.isOn("off")), "Off state");
+        require(io.github.abhishekkaisar.glassos.personal.HaLogic.isOn("unavailable") == null, "Unavailable guessed as off");
+        require(io.github.abhishekkaisar.glassos.personal.HaLogic.rank("switch.tomada", "Tomada candeeiro pé sala")
+            < io.github.abhishekkaisar.glassos.personal.HaLogic.rank("light.cozinha", "Cozinha teto"), "Lamps not listed first");
         System.out.println("Passed: " + layouts + " layout combinations and exact movie/series link checks.");
     }
 }
