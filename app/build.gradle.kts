@@ -23,7 +23,8 @@ android {
     buildToolsVersion = "34.0.0"
 
     defaultConfig {
-        applicationId = "io.github.abhishekkaisar.glassos.personal"
+        // Separate app ID so this Home Assistant build installs beside the official GlassOS+ instead of replacing it.
+        applicationId = "io.github.abhishekkaisar.glassos.personal.ha"
         minSdk = 22
         targetSdk = 28
         versionCode = (project.findProperty("releaseVersionCode")?.toString() ?: releaseVersion.getProperty("versionCode")).toInt()

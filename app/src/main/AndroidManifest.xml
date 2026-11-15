@@ -29,7 +29,7 @@
         android:allowBackup="false"
         android:banner="@drawable/banner"
         android:icon="@mipmap/ic_launcher"
-        android:label="GlassOS+"
+        android:label="GlassOS+ HA"
         android:largeHeap="false"
         android:theme="@style/GlassTheme"
         android:usesCleartextTraffic="true">
@@ -113,7 +113,7 @@
         <service
             android:name=".MediaListener"
             android:exported="true"
-            android:label="GlassOS+"
+            android:label="GlassOS+ HA"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

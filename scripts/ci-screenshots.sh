@@ -3,7 +3,7 @@
 # Home Assistant (10.0.2.2 is the host from inside the emulator) and saves screenshots to screenshots/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-P=io.github.abhishekkaisar.glassos.personal
+P=io.github.abhishekkaisar.glassos.personal.ha
 OUT=screenshots
 mkdir -p "$OUT"
 
