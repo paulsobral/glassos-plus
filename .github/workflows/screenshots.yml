@@ -1,0 +1,60 @@
+name: Screenshots
+
+# Builds the debug APK, runs it on an Android TV emulator against a fake Home Assistant and stores screenshots
+# on the "screenshots" branch and as an artifact.
+on:
+  push:
+    branches: [home-assistant-lamp]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+      - run: ./gradlew --no-daemon assembleDebug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run on Android TV emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: android-tv
+          arch: x86
+          profile: tv_1080p
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/ci-screenshots.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots/
+      - name: Publish to the screenshots branch
+        if: always()
+        run: |
+          [ -n "$(ls screenshots 2>/dev/null)" ] || exit 0
+          mkdir /tmp/pub && cp screenshots/*.png /tmp/pub/
+          cd /tmp/pub
+          git init -q -b screenshots
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -q -m "Screenshots for ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" screenshots
