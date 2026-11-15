@@ -32,3 +32,6 @@ work/
 
 dist/
 *.lineage
+
+# The GlassOS+ HA build's own debug signing key (see app/build.gradle.kts).
+!keystore/glassos-ha.p12

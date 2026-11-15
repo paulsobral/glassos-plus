@@ -32,6 +32,18 @@ android {
         buildConfigField("String", "TMDB_API_KEY", "\"${tmdbKey.replace("\"", "")}\"")
     }
 
+    // Fixed key for the GlassOS+ HA personal build, so every CI build installs over the last one as an update
+    // (keeping settings). Not the official GlassOS+ release key; it only signs this fork's app ID.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/glassos-ha.p12")
+            storeType = "pkcs12"
+            storePassword = "glassos-ha"
+            keyAlias = "glassos-ha"
+            keyPassword = "glassos-ha"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
