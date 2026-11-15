@@ -58,7 +58,7 @@ adb shell run-as $P cp /data/local/tmp/glass.xml shared_prefs/glass.xml
 shot() { sleep "${2:-3}"; adb exec-out screencap -p > "$OUT/$1.png"; echo "saved $1"; }
 key() { adb shell input keyevent "$@"; sleep 1; }
 
-adb shell am start -n $P/.MainActivity
+adb shell am start -n $P/io.github.abhishekkaisar.glassos.personal.MainActivity
 shot 1-home-lamp-on 25
 # From the dock: Up to the Top Shelf, Up to the pill, Left to the lamp.
 key 19; key 19; key 21
